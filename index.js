@@ -6,9 +6,10 @@ const uuidV1 = require('uuid/v1');
 let todos = [];
 
 app.use(function(req, res, next) { 
+    // Any client can get this information, I dont care what URL they are on
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE, DELETEALL");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
     
     next();
 });
@@ -17,8 +18,17 @@ app.use(bodyParser.json());
 
 // req = request (what you got from the client)
 // res = response (what you are sending back to client)
+
+
 app.get('/todos', function (req, res) {
     res.json(todos)
+})
+
+app.get('/todos/:id', function (req, res) { //GETs a single todo item
+    const todoId = req.params.id;          //req.params.id pulls from :id part of url    
+    todos.forEach((item) => {
+        if (item.id === todoId) res.json(item)
+    });
 })
 
 app.post('/todos', function (req, res) {
@@ -69,13 +79,13 @@ app.delete('/todos/:id', function (req, res) {
 app.delete('/todos/', function (req, res) {
     if (req.query.completed === 'true' ){  //if deleting completed
         todos = todos.filter((item) => item.completed !== true);
-        res.end();        
+      
     }
     else{               //if deleting all
         todos = [];
-        res.end();          
+   
     }
-                                    //responds to client, tells it we are done
+    res.end();          //responds to client, tells it we are done
 })
   
 
