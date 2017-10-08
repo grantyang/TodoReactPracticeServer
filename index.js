@@ -218,14 +218,14 @@ app.delete('/list/:listName', function(req, res) {
     let newData = parsedLists;
     newData.forEach(list => {
       if (list.name === name) {
-        //if clearing list of all completed
         if (req.query.completed === 'true') {
+        //if clearing list of all completed
           list.todoList = list.todoList.filter(item => item.completed !== true);
         } else if (req.query.all === 'true') {
-          //if clearing list of all items
+        //if clearing list of all items
           list.todoList = [];
         } else {
-          //if deleting list altogether
+        //if deleting list altogether
           newData = newData.filter(list => list.name !== name);
         }
       }
