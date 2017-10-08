@@ -78,7 +78,7 @@ app.get('/list/:listName', function(req, res) {
   });
 });
 
-app.get('/list/:listName/:id', function(req, res) {
+app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
   getListData((err, parsedLists) => {
     if (err) {
@@ -159,7 +159,7 @@ app.put('/list/:listName', function(req, res) {
   });
 });
 
-app.put('/list/:listName/:id', function(req, res) {
+app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
   getListData((err, parsedLists) => {
     if (err) {
@@ -191,7 +191,7 @@ app.put('/list/:listName/:id', function(req, res) {
   });
 });
 
-app.delete('/list/:listName/:id', function(req, res) {
+app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
   getListData((err, parsedLists) => {
     if (err) {
