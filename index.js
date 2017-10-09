@@ -4,20 +4,14 @@ var bodyParser = require('body-parser');
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
 
-// saveLists(newData, () => {
-
-// })
-
-//----
-
-// res.setHeader("contentytpy = json")
+// res.setHeader("contenttype = json")
 // res.send("{a:b}")  => JSON.parse("{a:b}") = {a:b}
 // =
 // res.json({a: b})  => JSON.parse("{a:b}") = {a:b}
 
 // res.json("{a:b}")
 // =
-// res.setHeader("contentytpy = json")
+// res.setHeader("contenttype = json")
 // res.send("\{a\:b\}") JSON.parse("\{a\:b\}") = "{a:b}" JSON.parse( "{a:b}")
 
 app.use(function(req, res, next) {
@@ -36,25 +30,67 @@ app.use(bodyParser.json());
 // req = request (what you got from the client)
 // res = response (what you are sending back to client)
 
-getListData = callback => {
+getFileData = (fileName, callback) => {
   //reads from file and parses data for us
-  fs.readFile('./listdata.json', 'utf8', function(err, data) {
+  fs.readFile(fileName, 'utf8', function(err, data) {
     if (err) return callback(err);
     callback(null, JSON.parse(data));
   });
 };
 
-saveListData = (newData, callback) => {
+saveFileData = ( fileName, newData, callback) => {
   //saves to file and stringifys data for us
-  fs.writeFile('./listdata.json', JSON.stringify(newData), function(err) {
+  fs.writeFile(fileName, JSON.stringify(newData), function(err) {
     if (err) return callback(err);
     callback();
   });
 };
 
+app.get('/users', function(req, res) {
+    //GETs all users
+    getFileData('./userdata.json', (err, parsedUsers) => {
+      if (err) {
+        throw err;
+      }
+      res.json(parsedUsers); // sending to the client as a object
+    });
+  });
+
+  app.get('/user/:userId', function(req, res) {
+    //GETs a single user
+    getFileData('./userdata.json',(err, parsedUsers) => {
+      if (err) {
+        throw err;
+      }
+      const userId = req.params.userId;
+      parsedUsers.forEach(user => {
+        if (user.userId === userId) {
+          return res.json(user);
+        }
+      });
+      res.end();
+    });
+  });
+
+  app.post('/signup', function(req, res) {
+    //POSTs a new user
+    getFileData('./userdata.json',(err, parsedUsers) => {
+      if (err) {
+        throw err;
+      } 
+      let newUser = req.body; //create newTodo with body of request and give it an ID
+      let newUsers = [newUser, ...parsedUsers]; //update array on server with newTodo
+      saveFileData('./userdata.json', newUsers, err => {
+        if (err) throw err;
+        res.json(newUser);
+      });
+    });
+  });
+
+  
 app.get('/lists', function(req, res) {
   //GETs all lists
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -64,13 +100,13 @@ app.get('/lists', function(req, res) {
 
 app.get('/list/:listName', function(req, res) {
   //GETs a single todo list
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
     parsedLists.forEach(list => {
-      if (list.name === name) {
+      if (list.name.toLowerCase() === name.toLowerCase()) {
         return res.json(list);
       }
     });
@@ -80,7 +116,7 @@ app.get('/list/:listName', function(req, res) {
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -102,13 +138,13 @@ app.get('/list/:listName/todo/:id', function(req, res) {
 
 app.post('/create', function(req, res) {
   //POSTs a new todo list
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
-    }
+    } 
     let newList = req.body; //create newTodo with body of request and give it an ID
     let newData = [newList, ...parsedLists]; //update array on server with newTodo
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.json(newList);
     });
@@ -117,7 +153,7 @@ app.post('/create', function(req, res) {
 
 app.post('/list/:listName', function(req, res) {
   //POSTs a new todo item to a todo list
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -129,7 +165,7 @@ app.post('/list/:listName', function(req, res) {
         list.todoList = [newTodo, ...list.todoList];
       }
     });
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.json(newTodo); //respond with newTodo
     });
@@ -138,7 +174,7 @@ app.post('/list/:listName', function(req, res) {
 
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -152,7 +188,7 @@ app.put('/list/:listName', function(req, res) {
         updatedList = list;
       }
     });
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.json(updatedList); //respond with updatedList
     });
@@ -161,7 +197,7 @@ app.put('/list/:listName', function(req, res) {
 
 app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -184,7 +220,7 @@ app.put('/list/:listName/todo/:id', function(req, res) {
         });
       }
     });
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.json(todoToReturn);
     });
@@ -193,7 +229,7 @@ app.put('/list/:listName/todo/:id', function(req, res) {
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -205,7 +241,7 @@ app.delete('/list/:listName/todo/:id', function(req, res) {
         list.todoList = list.todoList.filter(item => item.id !== todoId);
       }
     });
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.end();
     });
@@ -213,24 +249,24 @@ app.delete('/list/:listName/todo/:id', function(req, res) {
 });
 
 app.delete('/list/:listName', function(req, res) {
-  getListData((err, parsedLists) => {
+  getFileData('./listdata.json',(err, parsedLists) => {
     const name = req.params.listName;
     let newData = parsedLists;
     newData.forEach(list => {
       if (list.name === name) {
         if (req.query.completed === 'true') {
-        //if clearing list of all completed
+          //if clearing list of all completed
           list.todoList = list.todoList.filter(item => item.completed !== true);
         } else if (req.query.all === 'true') {
-        //if clearing list of all items
+          //if clearing list of all items
           list.todoList = [];
         } else {
-        //if deleting list altogether
+          //if deleting list altogether
           newData = newData.filter(list => list.name !== name);
         }
       }
     });
-    saveListData(newData, err => {
+    saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.end();
     });
@@ -243,3 +279,22 @@ app.listen(5000); //port
 //     res.json(updatedTodo)
 
 // },1000)
+
+// app.use((req, res, next) => {
+//   if (!req.cookie.token) {
+//     next();
+//     return;
+//   }
+// });
+
+// getTokenData(tokens => {
+//   var currentUserId = tokens[req.cookie.token];
+//   if (!currentUserId) return next();
+//   getUserData(currentUserId, (err, user) => {
+//     req.user = user.next();
+//   });
+// });
+
+// app.get((req, res) => {
+//   console.log(req.user);
+// });
