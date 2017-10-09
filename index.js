@@ -1,8 +1,10 @@
 var express = require('express');
 var app = express();
 var bodyParser = require('body-parser');
+var bcrypt = require('bcrypt');
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
+
 
 // res.setHeader("contenttype = json")
 // res.send("{a:b}")  => JSON.parse("{a:b}") = {a:b}
@@ -73,16 +75,24 @@ app.get('/users', function(req, res) {
   });
 
   app.post('/signup', function(req, res) {
+    const saltRounds = 10;
+
     //POSTs a new user
     getFileData('./userdata.json',(err, parsedUsers) => {
       if (err) {
         throw err;
       } 
-      let newUser = req.body; //create newTodo with body of request and give it an ID
-      let newUsers = [newUser, ...parsedUsers]; //update array on server with newTodo
-      saveFileData('./userdata.json', newUsers, err => {
-        if (err) throw err;
-        res.json(newUser);
+      let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create newTodo with body of request and give it an ID
+      
+      bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
+        // Store hashed pw in DB.
+        newUser.password = hash
+        let newUsers = [newUser, ...parsedUsers];         
+
+        saveFileData('./userdata.json', newUsers, err => {
+            if (err) throw err;
+            res.json(newUser);
+          });
       });
     });
   });
