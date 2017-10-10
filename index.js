@@ -5,7 +5,6 @@ var bcrypt = require('bcrypt');
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
 
-
 // res.setHeader("contenttype = json")
 // res.send("{a:b}")  => JSON.parse("{a:b}") = {a:b}
 // =
@@ -40,7 +39,7 @@ getFileData = (fileName, callback) => {
   });
 };
 
-saveFileData = ( fileName, newData, callback) => {
+saveFileData = (fileName, newData, callback) => {
   //saves to file and stringifys data for us
   fs.writeFile(fileName, JSON.stringify(newData), function(err) {
     if (err) return callback(err);
@@ -49,58 +48,97 @@ saveFileData = ( fileName, newData, callback) => {
 };
 
 app.get('/users', function(req, res) {
-    //GETs all users
-    getFileData('./userdata.json', (err, parsedUsers) => {
+  //GETs all users
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    res.json(parsedUsers); // sending to the client as a object
+  });
+});
+
+app.get('/user/:userId', function(req, res) {
+  //GETs a single user
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    const userId = req.params.userId;
+    return res.json(parsedUsers.find(user => user.Id === userId))
+  });
+});
+
+app.post('/login', function(req, res) {
+  let loginSuccess = false;
+  const passwordInput = req.body.password;
+  const emailInput = req.body.email;
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    //find proper user
+    //if no user found, send alert
+    //if found, run check.
+
+    const user = parsedUsers.find(user => user.email === emailInput);
+    if (!user) return res.send('email');
+    const userId = user.userId;
+    const hash = user.password;
+
+    bcrypt.compare(passwordInput, hash, function(err, match) {
       if (err) {
         throw err;
       }
-      res.json(parsedUsers); // sending to the client as a object
-    });
-  });
-
-  app.get('/user/:userId', function(req, res) {
-    //GETs a single user
-    getFileData('./userdata.json',(err, parsedUsers) => {
-      if (err) {
-        throw err;
-      }
-      const userId = req.params.userId;
-      parsedUsers.forEach(user => {
-        if (user.userId === userId) {
-          return res.json(user);
-        }
-      });
-      res.end();
-    });
-  });
-
-  app.post('/signup', function(req, res) {
-    const saltRounds = 10;
-
-    //POSTs a new user
-    getFileData('./userdata.json',(err, parsedUsers) => {
-      if (err) {
-        throw err;
-      } 
-      let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create newTodo with body of request and give it an ID
-      
-      bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
-        // Store hashed pw in DB.
-        newUser.password = hash
-        let newUsers = [newUser, ...parsedUsers];         
-
-        saveFileData('./userdata.json', newUsers, err => {
+      if (match) {
+        //if sucessful login
+        getFileData('./sessiondata.json', (err, parsedSessions) => {
+          //get old sessions from sessiondata
+          if (err) {
+            throw err;
+          }
+          parsedSessions[userId] = uuidV1(); //add new session to sessiondata
+          saveFileData('./sessiondata.json', parsedSessions, err => {
             if (err) throw err;
-            res.json(newUser);
+            return res.send(parsedSessions[userId]);
           });
+        });
+      }
+      if (!match) {
+        return res.send('password');
+      }
+    });
+  });
+});
+
+//if login is successful, give client a uuid token that they will store in a cookie
+// Store the uuid in a cookie so it gets sent to the server on each request.
+// login is a POST, if the info is correct for user then respond with 200 and set "token" cookie to be uuid() which you also store on the server
+// -then made an express middleware to check if the token in the cookie matches a user and then treat them as loggged in if it does:
+
+app.post('/signup', function(req, res) {
+  const saltRounds = 10;
+  //POSTs a new user
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create user with body of request and give it an ID
+    bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
+      // Store hashed pw in DB.
+      newUser.password = hash;
+      let newUsers = [newUser, ...parsedUsers];
+
+      saveFileData('./userdata.json', newUsers, err => {
+        if (err) throw err;
+        res.json(newUser);
       });
     });
   });
+});
 
-  
 app.get('/lists', function(req, res) {
   //GETs all lists
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
@@ -110,48 +148,36 @@ app.get('/lists', function(req, res) {
 
 app.get('/list/:listName', function(req, res) {
   //GETs a single todo list
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
-    parsedLists.forEach(list => {
-      if (list.name.toLowerCase() === name.toLowerCase()) {
-        return res.json(list);
-      }
-    });
-    res.end();
+    return res.json(parsedLists.find(list => list.name.toLowerCase() === name.toLowerCase()));
+    
   });
 });
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
     const todoId = req.params.id; //req.params.id pulls from :id part of url
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        let todos = list.todoList;
-        todos.forEach(item => {
-          if (item.id === todoId) {
-            return res.json(item);
-          }
-        });
-      }
-    });
-    res.end();
+    
+    const foundList = parsedLists.find(list => list.name === name)
+    return res.json(foundList.todoList.find(item => item.id === todoId));
   });
 });
 
 app.post('/create', function(req, res) {
   //POSTs a new todo list
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
-    } 
+    }
     let newList = req.body; //create newTodo with body of request and give it an ID
     let newData = [newList, ...parsedLists]; //update array on server with newTodo
     saveFileData('./listdata.json', newData, err => {
@@ -169,13 +195,12 @@ app.post('/list/:listName', function(req, res) {
     }
     const name = req.params.listName;
     let newTodo = Object.assign({}, req.body, { id: uuidV1() }); //create newTodo with body of request and give it an ID
-    let newData = parsedLists;
-    newData.forEach(list => {
+    parsedLists.forEach(list => {
       if (list.name === name) {
         list.todoList = [newTodo, ...list.todoList];
       }
     });
-    saveFileData('./listdata.json', newData, err => {
+    saveFileData('./listdata.json', parsedLists, err => {
       if (err) throw err;
       res.json(newTodo); //respond with newTodo
     });
@@ -184,21 +209,21 @@ app.post('/list/:listName', function(req, res) {
 
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
-    let newData = parsedLists;
+ 
     let updatedList = [];
 
-    newData.forEach(list => {
+    parsedLists.forEach(list => {
       if (list.name === name) {
         list.name = req.body.name;
         updatedList = list;
       }
     });
-    saveFileData('./listdata.json', newData, err => {
+    saveFileData('./listdata.json', parsedLists, err => {
       if (err) throw err;
       res.json(updatedList); //respond with updatedList
     });
@@ -207,15 +232,14 @@ app.put('/list/:listName', function(req, res) {
 
 app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
     const todoId = req.params.id; //req.params.id pulls from :id part of url
-    let newData = parsedLists;
     let todoToReturn = {};
-    newData.forEach(list => {
+    parsedLists.forEach(list => {
       if (list.name === name) {
         //find correct todoList in LoL
         const oldTodo = list.todoList.find(todo => todo.id === todoId); //find todo with matching ID. Create fresh array necessary? no but good practice
@@ -230,7 +254,7 @@ app.put('/list/:listName/todo/:id', function(req, res) {
         });
       }
     });
-    saveFileData('./listdata.json', newData, err => {
+    saveFileData('./listdata.json', parsedLists, err => {
       if (err) throw err;
       res.json(todoToReturn);
     });
@@ -239,19 +263,18 @@ app.put('/list/:listName/todo/:id', function(req, res) {
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
     const todoId = req.params.id;
-    let newData = parsedLists;
-    newData.forEach(list => {
+    parsedLists.forEach(list => {
       if (list.name === name) {
         list.todoList = list.todoList.filter(item => item.id !== todoId);
       }
     });
-    saveFileData('./listdata.json', newData, err => {
+    saveFileData('./listdata.json', parsedLists, err => {
       if (err) throw err;
       res.end();
     });
@@ -259,10 +282,9 @@ app.delete('/list/:listName/todo/:id', function(req, res) {
 });
 
 app.delete('/list/:listName', function(req, res) {
-  getFileData('./listdata.json',(err, parsedLists) => {
+  getFileData('./listdata.json', (err, parsedLists) => {
     const name = req.params.listName;
-    let newData = parsedLists;
-    newData.forEach(list => {
+    parsedLists.forEach(list => {
       if (list.name === name) {
         if (req.query.completed === 'true') {
           //if clearing list of all completed
@@ -272,11 +294,11 @@ app.delete('/list/:listName', function(req, res) {
           list.todoList = [];
         } else {
           //if deleting list altogether
-          newData = newData.filter(list => list.name !== name);
+          parsedLists = parsedLists.filter(list => list.name !== name);
         }
       }
     });
-    saveFileData('./listdata.json', newData, err => {
+    saveFileData('./listdata.json', parsedLists, err => {
       if (err) throw err;
       res.end();
     });
