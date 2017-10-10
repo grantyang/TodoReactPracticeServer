@@ -2,8 +2,13 @@ var express = require('express');
 var app = express();
 var bodyParser = require('body-parser');
 var bcrypt = require('bcrypt');
+var cookieParser = require('cookie-parser');
+
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
+
+
+app.use(cookieParser());
 
 // res.setHeader("contenttype = json")
 // res.send("{a:b}")  => JSON.parse("{a:b}") = {a:b}
@@ -17,7 +22,8 @@ const fs = require('fs');
 
 app.use(function(req, res, next) {
   // Any client can get this information, I dont care what URL they are on
-  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.header('Access-Control-Allow-Credentials', true);
   res.header(
     'Access-Control-Allow-Headers',
     'Origin, X-Requested-With, Content-Type, Accept'
@@ -99,11 +105,14 @@ app.post('/login', function(req, res) {
           parsedSessions[userId] = uuidV1(); //add new session to sessiondata
           saveFileData('./sessiondata.json', parsedSessions, err => {
             if (err) throw err;
-            return res.send(parsedSessions[userId]);
+            res.cookie('userToken', parsedSessions[userId], {
+                maxAge: 1000 * 60 * 15, // expires after 15 minutes
+            })
+            return res.end();
           });
         });
       }
-      if (!match) {
+      if (!match) { //if wrong password
         return res.send('password');
       }
     });
