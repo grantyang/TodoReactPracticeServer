@@ -7,7 +7,6 @@ var cookieParser = require('cookie-parser');
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
 
-
 app.use(cookieParser());
 
 // res.setHeader("contenttype = json")
@@ -33,7 +32,6 @@ app.use(function(req, res, next) {
 });
 
 app.use(bodyParser.json());
-
 
 // app.use((req, res, next) => {
 //   if (!req.cookie.token) {
@@ -83,14 +81,25 @@ app.get('/users', function(req, res) {
   });
 });
 
-app.get('/user/:userId', function(req, res) {
-  //GETs a single user
-  getFileData('./userdata.json', (err, parsedUsers) => {
+app.get('/profile', function(req, res) {
+  //GETs logged in user
+  let userId = '';
+  const userToken = req.cookies.userToken; //grab token from cookie
+  if (!userToken) return res.status('403').end(); //if no token, return error code
+  getFileData('./sessiondata.json', (err, parsedSessions) => {
     if (err) {
       throw err;
     }
-    const userId = req.params.userId;
-    return res.json(parsedUsers.find(user => user.Id === userId))
+    if (!parsedSessions[userToken]) return res.status('401').end(); //if no matching user, return error code
+    if (parsedSessions[userToken]) {
+      userId = parsedSessions[userToken]; //set userId if token matches
+      getFileData('./userdata.json', (err, parsedUsers) => {
+        if (err) {
+          throw err;
+        }
+        return res.json(parsedUsers.find(user => user.userId === userId)); //return matching user data
+      });
+    }
   });
 });
 
@@ -106,7 +115,7 @@ app.post('/login', function(req, res) {
     //find proper user
     const user = parsedUsers.find(user => user.email === emailInput);
     //if no user found, send alert
-    if (!user) return res.status(401).send('email'); 
+    if (!user) return res.status(401).send('email');
 
     const userId = user.userId;
     const hash = user.password;
@@ -122,18 +131,20 @@ app.post('/login', function(req, res) {
           if (err) {
             throw err;
           }
-          parsedSessions[userId] = uuidV1(); //add new session to sessiondata
+          const sessionToken = uuidV1();
+          parsedSessions[sessionToken] = userId; //add new session to sessiondata
           saveFileData('./sessiondata.json', parsedSessions, err => {
             if (err) throw err;
-            res.cookie('userToken', parsedSessions[userId], {
-                maxAge: 1000 * 60 * 15, // expires after 15 minutes
-            })
+            res.cookie('userToken', sessionToken, {
+              maxAge: 1000 * 60 * 15 // expires after 15 minutes
+            });
             return res.send('success');
           });
         });
       }
-      if (!match) { //if wrong password
-        return res.status(401).send('password');        
+      if (!match) {
+        //if wrong password
+        return res.status(401).send('password');
       }
     });
   });
@@ -150,7 +161,7 @@ app.post('/signup', function(req, res) {
     }
     const user = parsedUsers.find(user => user.email === req.body.email);
     //if duplicate user found, send alert
-    if (user) return res.status(401).end(); 
+    if (user) return res.status(401).end();
 
     let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create user with body of request and give it an ID
     bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
@@ -183,8 +194,9 @@ app.get('/list/:listName', function(req, res) {
       throw err;
     }
     const name = req.params.listName;
-    return res.json(parsedLists.find(list => list.name.toLowerCase() === name.toLowerCase()));
-    
+    return res.json(
+      parsedLists.find(list => list.name.toLowerCase() === name.toLowerCase())
+    );
   });
 });
 
@@ -196,8 +208,8 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     }
     const name = req.params.listName;
     const todoId = req.params.id; //req.params.id pulls from :id part of url
-    
-    const foundList = parsedLists.find(list => list.name === name)
+
+    const foundList = parsedLists.find(list => list.name === name);
     return res.json(foundList.todoList.find(item => item.id === todoId));
   });
 });
@@ -244,7 +256,7 @@ app.put('/list/:listName', function(req, res) {
       throw err;
     }
     const name = req.params.listName;
- 
+
     let updatedList = [];
 
     parsedLists.forEach(list => {
@@ -341,4 +353,3 @@ app.listen(5000); //port
 //     res.json(updatedTodo)
 
 // },1000)
-
