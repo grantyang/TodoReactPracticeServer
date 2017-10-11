@@ -33,20 +33,32 @@ app.use(function(req, res, next) {
 
 app.use(bodyParser.json());
 
-// app.use((req, res, next) => {
-//   if (!req.cookie.token) {
-//     next();
-//     return;
-//   }
-// });
+app.use((req, res, next) => {
+  if (!req.cookies.userToken) {
+    next();
+    return;
+  }
 
-// getTokenData(tokens => {
-//   var currentUserId = tokens[req.cookie.token];
-//   if (!currentUserId) return next(); //no matching user
-//   getUserData(currentUserId, (err, user) => {
-//     req.user = user.next();
-//   });
-// });
+  const userToken = req.cookies.userToken; //grab token from cookie
+  getFileData('./sessiondata.json', (err, parsedSessions) => {
+    //get user ID to match user token
+    if (err) {
+      throw err;
+    }
+    if (!parsedSessions[userToken]) return res.status('401').next(); //if no matching user, return error code
+    if (parsedSessions[userToken]) {
+      let currentUserId = parsedSessions[userToken]; //set userId if token matches
+      getFileData('./userdata.json', (err, parsedUsers) => {
+        //get user data to match user ID
+        if (err) {
+          throw err;
+        }
+        req.user = parsedUsers.find(user => user.userId === currentUserId); //set req.user to found user
+        req.next();
+      });
+    }
+  });
+});
 
 // app.get((req, res) => {
 //   console.log(req.user);
@@ -81,26 +93,10 @@ app.get('/users', function(req, res) {
   });
 });
 
-app.get('/profile', function(req, res) {
-  //GETs logged in user
-  let userId = '';
+app.get('/profile', function(req, res) {   //GETs logged in user    
   const userToken = req.cookies.userToken; //grab token from cookie
   if (!userToken) return res.status('403').end(); //if no token, return error code
-  getFileData('./sessiondata.json', (err, parsedSessions) => {
-    if (err) {
-      throw err;
-    }
-    if (!parsedSessions[userToken]) return res.status('401').end(); //if no matching user, return error code
-    if (parsedSessions[userToken]) {
-      userId = parsedSessions[userToken]; //set userId if token matches
-      getFileData('./userdata.json', (err, parsedUsers) => {
-        if (err) {
-          throw err;
-        }
-        return res.json(parsedUsers.find(user => user.userId === userId)); //return matching user data
-      });
-    }
-  });
+  return res.json(req.user);
 });
 
 app.post('/login', function(req, res) {
@@ -202,6 +198,7 @@ app.get('/list/:listName', function(req, res) {
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
+  console.log(req.user);
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
