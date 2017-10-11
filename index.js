@@ -34,6 +34,26 @@ app.use(function(req, res, next) {
 
 app.use(bodyParser.json());
 
+
+// app.use((req, res, next) => {
+//   if (!req.cookie.token) {
+//     next();
+//     return;
+//   }
+// });
+
+// getTokenData(tokens => {
+//   var currentUserId = tokens[req.cookie.token];
+//   if (!currentUserId) return next(); //no matching user
+//   getUserData(currentUserId, (err, user) => {
+//     req.user = user.next();
+//   });
+// });
+
+// app.get((req, res) => {
+//   console.log(req.user);
+// });
+
 // req = request (what you got from the client)
 // res = response (what you are sending back to client)
 
@@ -82,12 +102,12 @@ app.post('/login', function(req, res) {
     if (err) {
       throw err;
     }
-    //find proper user
-    //if no user found, send alert
-    //if found, run check.
 
+    //find proper user
     const user = parsedUsers.find(user => user.email === emailInput);
-    if (!user) return res.send('email');
+    //if no user found, send alert
+    if (!user) return res.status(401).send('email'); 
+
     const userId = user.userId;
     const hash = user.password;
 
@@ -108,20 +128,17 @@ app.post('/login', function(req, res) {
             res.cookie('userToken', parsedSessions[userId], {
                 maxAge: 1000 * 60 * 15, // expires after 15 minutes
             })
-            return res.end();
+            return res.send('success');
           });
         });
       }
       if (!match) { //if wrong password
-        return res.send('password');
+        return res.status(401).send('password');        
       }
     });
   });
 });
 
-//if login is successful, give client a uuid token that they will store in a cookie
-// Store the uuid in a cookie so it gets sent to the server on each request.
-// login is a POST, if the info is correct for user then respond with 200 and set "token" cookie to be uuid() which you also store on the server
 // -then made an express middleware to check if the token in the cookie matches a user and then treat them as loggged in if it does:
 
 app.post('/signup', function(req, res) {
@@ -131,6 +148,10 @@ app.post('/signup', function(req, res) {
     if (err) {
       throw err;
     }
+    const user = parsedUsers.find(user => user.email === req.body.email);
+    //if duplicate user found, send alert
+    if (user) return res.status(401).end(); 
+
     let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create user with body of request and give it an ID
     bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
       // Store hashed pw in DB.
@@ -321,21 +342,3 @@ app.listen(5000); //port
 
 // },1000)
 
-// app.use((req, res, next) => {
-//   if (!req.cookie.token) {
-//     next();
-//     return;
-//   }
-// });
-
-// getTokenData(tokens => {
-//   var currentUserId = tokens[req.cookie.token];
-//   if (!currentUserId) return next();
-//   getUserData(currentUserId, (err, user) => {
-//     req.user = user.next();
-//   });
-// });
-
-// app.get((req, res) => {
-//   console.log(req.user);
-// });
