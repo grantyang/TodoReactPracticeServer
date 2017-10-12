@@ -86,8 +86,9 @@ saveFileData = (fileName, newData, callback) => {
 
 app.get('/user', function(req, res) {
     //GETs logged in user
-    console.log('GET from user')
+    console.log('GET from user!')
     if (!req.user) return res.status(403).end();  
+    console.log(`${req.user.userId}`)    
     return res.json(req.user);
   });
 
