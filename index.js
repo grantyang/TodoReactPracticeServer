@@ -198,7 +198,7 @@ app.get('/list/:listName', function(req, res) {
     }
     const name = req.params.listName;
     return res.json(
-      parsedLists.find(list => list.name.toLowerCase() === name.toLowerCase())
+      parsedLists.find(list => (list.name.toLowerCase() === name.toLowerCase()) && (list.creator === req.user.userId))
     );
   });
 });
@@ -212,8 +212,7 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     }
     const name = req.params.listName;
     const todoId = req.params.id; //req.params.id pulls from :id part of url
-
-    const foundList = parsedLists.find(list => list.name === name);
+    const foundList = parsedLists.find(list => (list.name.toLowerCase() === name.toLowerCase()) && (list.creator === req.user.userId));
     return res.json(foundList.todoList.find(item => item.id === todoId));
   });
 });
