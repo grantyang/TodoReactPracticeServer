@@ -83,15 +83,13 @@ saveFileData = (fileName, newData, callback) => {
   });
 };
 
-
 app.get('/user', function(req, res) {
-    //GETs logged in user
-    console.log('GET from user!')
-    if (!req.user) return res.status(403).end();  
-    console.log(`${req.user.userId}`)    
-    return res.json(req.user);
-  });
-
+  //GETs logged in user
+  console.log('GET from user!');
+  if (!req.user) return res.status(403).end();
+  console.log(`${req.user.userId}`);
+  return res.json(req.user);
+});
 
 app.get('/users', function(req, res) {
   //GETs all users
@@ -102,7 +100,6 @@ app.get('/users', function(req, res) {
     res.json(parsedUsers); // sending to the client as a object
   });
 });
-
 
 app.post('/login', function(req, res) {
   let loginSuccess = false;
@@ -137,7 +134,7 @@ app.post('/login', function(req, res) {
           saveFileData('./sessiondata.json', parsedSessions, err => {
             if (err) throw err;
             res.cookie('userToken', sessionToken, {
-              maxAge: 1000 * 60 * 15 // expires after 15 minutes
+              maxAge: 1000 * 60 * 150 // expires after 150 minutes
             });
             return res.send('success');
           });
@@ -199,7 +196,11 @@ app.get('/list/:listName', function(req, res) {
     }
     const name = req.params.listName;
     return res.json(
-      parsedLists.find(list => (list.name.toLowerCase() === name.toLowerCase()) && (list.creator === req.user.userId))
+      parsedLists.find(
+        list =>
+          list.name.toLowerCase() === name.toLowerCase() &&
+          list.creator === req.user.userId
+      )
     );
   });
 });
@@ -213,7 +214,11 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     }
     const name = req.params.listName;
     const todoId = req.params.id; //req.params.id pulls from :id part of url
-    const foundList = parsedLists.find(list => (list.name.toLowerCase() === name.toLowerCase()) && (list.creator === req.user.userId));
+    const foundList = parsedLists.find(
+      list =>
+        list.name.toLowerCase() === name.toLowerCase() &&
+        list.creator === req.user.userId
+    );
     return res.json(foundList.todoList.find(item => item.id === todoId));
   });
 });
@@ -311,29 +316,74 @@ app.put('/list/:listName/todo/:id', function(req, res) {
   });
 });
 
-app.put('/user/:userId', function(req, res) {
-    //PUT updates a user
-    if (!req.user) return res.status(403).end();
-    getFileData('./userdata.json', (err, parsedUsers) => {
-      if (err) {
-        throw err;
-      }
-      let updatedUser = {}
-      const userId = req.params.userId;
+app.put('/user/', function(req, res) {
+  //PUT updates logged in user
+  const userId = req.user.userId;
+  const saltRounds = 10;
+
+  if (!req.user) return res.status(403).end();
+  console.log(`user exists`);
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    if (req.query.changepassword === 'true') {
+      console.log(`changepassword = true`);
+
+      //change password
+      //check to see if old password matches
+      bcrypt.compare(req.body.oldPassword, req.user.password, function(
+        err,
+        match
+      ) {
+        if (err) {
+          throw err;
+        }
+        if (match) {
+          //if so, update password in userdata.json
+          bcrypt.hash(req.body.newPassword, saltRounds, function(err, hash) {
+            //hash new password
+            console.log(`new hash ${hash}`);
+            let updatedUser = Object.assign({}, req.user, { password: hash });
+            console.log(`updated user ${updatedUser}`);
+
+            const newUsers = parsedUsers.map(user => {
+              if (user.userId !== userId) {
+                return user;
+              }
+              return updatedUser;
+            });
+            console.log(`new users ${newUsers}`);
+
+            saveFileData('./userdata.json', newUsers, err => {
+              console.log(`saved`);
+              if (err) throw err;
+              return res.json(updatedUser);
+            });
+          });
+        }
+        if (!match) {
+          //if wrong password
+          return res.status(401).send('password');
+        }
+      });
+    } else {
+      console.log(`changepassword = false`);
+      //change non-password fields
+      const updatedUser = Object.assign({}, req.user, req.body);
       const newUsers = parsedUsers.map(user => {
         if (user.userId !== userId) {
-            return user;
+          return user;
         }
-        updatedUser = Object.assign({}, user, req.body);         
         return updatedUser;
-        }
-      );
+      });
       saveFileData('./userdata.json', newUsers, err => {
         if (err) throw err;
         res.json(updatedUser);
       });
-    });
+    }
   });
+});
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
