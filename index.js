@@ -177,12 +177,12 @@ app.post('/signup', function(req, res) {
 
 app.get('/lists', function(req, res) {
   //GETs all lists
-  if (!req.user) return res.status(403).end();
+  //if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
-    parsedLists = parsedLists.filter(list => list.creator === req.user.userId);
+    parsedLists = parsedLists.filter(list => (list.creator === req.user.userId) || (list.privacy === 'public'));
     res.json(parsedLists); // sending to the client as a object
   });
 });
@@ -260,6 +260,7 @@ app.post('/list/:listName', function(req, res) {
   });
 });
 
+
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
   if (!req.user) return res.status(403).end();
@@ -268,18 +269,16 @@ app.put('/list/:listName', function(req, res) {
       throw err;
     }
     const name = req.params.listName;
+    let updatedLists = parsedLists.map(list => {
+        if (list.name !== name){
+            return list
+        }
+        return listToReturn = Object.assign({}, list, req.body);
+    })
 
-    let updatedList = [];
-
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        list.name = req.body.name;
-        updatedList = list;
-      }
-    });
-    saveFileData('./listdata.json', parsedLists, err => {
+    saveFileData('./listdata.json', updatedLists, err => {
       if (err) throw err;
-      res.json(updatedList); //respond with updatedList
+      res.json(listToReturn); //respond with listToReturn
     });
   });
 });
@@ -297,15 +296,12 @@ app.put('/list/:listName/todo/:id', function(req, res) {
     parsedLists.forEach(list => {
       if (list.name === name) {
         //find correct todoList in LoL
-        const oldTodo = list.todoList.find(todo => todo.id === todoId); //find todo with matching ID. Create fresh array necessary? no but good practice
-        let updatedTodo = Object.assign({}, oldTodo, req.body); // req.body needed? yes, otherwise has a bunch of random data
         list.todoList = list.todoList.map(item => {
           // replace old todoList with new one containing updated todo
           if (item.id !== todoId) {
             return item;
           }
-          todoToReturn = updatedTodo;
-          return updatedTodo;
+          return todoToReturn = Object.assign({}, item, req.body); // req.body needed? yes, otherwise has a bunch of random data
         });
       }
     });
