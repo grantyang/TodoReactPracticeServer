@@ -35,12 +35,15 @@ app.use(bodyParser.json());
 
 app.use((req, res, next) => {
   if (!req.cookies.userToken) {
+    console.log('hey1')
     next();
     return;
   }
 
   const userToken = req.cookies.userToken; //grab token from cookie
   getFileData('./sessiondata.json', (err, parsedSessions) => {
+    console.log('hey2')
+    
     //get user ID to match user token
     if (err) {
       throw err;
@@ -85,9 +88,7 @@ saveFileData = (fileName, newData, callback) => {
 
 app.get('/user', function(req, res) {
   //GETs logged in user
-  console.log('GET from user!');
   if (!req.user) return res.status(403).end();
-  console.log(`${req.user.userId}`);
   return res.json(req.user);
 });
 
@@ -182,14 +183,18 @@ app.get('/lists', function(req, res) {
     if (err) {
       throw err;
     }
+    if (req.query.authored === 'true') {
+      parsedLists = parsedLists.filter(list => (list.creator === req.user.userId));
+      return res.json(parsedLists); // sending to the client as a object      
+    }
     parsedLists = parsedLists.filter(list => (list.creator === req.user.userId) || (list.privacy === 'public'));
-    res.json(parsedLists); // sending to the client as a object
+    return res.json(parsedLists); // sending to the client as a object
   });
 });
 
 app.get('/list/:listName', function(req, res) {
   //GETs a single todo list
-  if (!req.user) return res.status(403).end();
+  //if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
@@ -199,7 +204,7 @@ app.get('/list/:listName', function(req, res) {
       parsedLists.find(
         list =>
           list.name.toLowerCase() === name.toLowerCase() &&
-          list.creator === req.user.userId
+          ((list.creator === req.user.userId) || (list.privacy === 'public'))
       )
     );
   });
@@ -318,14 +323,11 @@ app.put('/user/', function(req, res) {
   const saltRounds = 10;
 
   if (!req.user) return res.status(403).end();
-  console.log(`user exists`);
   getFileData('./userdata.json', (err, parsedUsers) => {
     if (err) {
       throw err;
     }
     if (req.query.changepassword === 'true') {
-      console.log(`changepassword = true`);
-
       //change password
       //check to see if old password matches
       bcrypt.compare(req.body.oldPassword, req.user.password, function(
@@ -339,20 +341,14 @@ app.put('/user/', function(req, res) {
           //if so, update password in userdata.json
           bcrypt.hash(req.body.newPassword, saltRounds, function(err, hash) {
             //hash new password
-            console.log(`new hash ${hash}`);
             let updatedUser = Object.assign({}, req.user, { password: hash });
-            console.log(`updated user ${updatedUser}`);
-
             const newUsers = parsedUsers.map(user => {
               if (user.userId !== userId) {
                 return user;
               }
               return updatedUser;
             });
-            console.log(`new users ${newUsers}`);
-
             saveFileData('./userdata.json', newUsers, err => {
-              console.log(`saved`);
               if (err) throw err;
               return res.json(updatedUser);
             });
@@ -364,7 +360,6 @@ app.put('/user/', function(req, res) {
         }
       });
     } else {
-      console.log(`changepassword = false`);
       //change non-password fields
       const updatedUser = Object.assign({}, req.user, req.body);
       const newUsers = parsedUsers.map(user => {
@@ -383,6 +378,7 @@ app.put('/user/', function(req, res) {
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
+  console.log(req.user)
   if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
