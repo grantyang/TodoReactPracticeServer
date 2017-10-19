@@ -212,7 +212,6 @@ app.get('/list/:listName', function(req, res) {
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
-  if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
