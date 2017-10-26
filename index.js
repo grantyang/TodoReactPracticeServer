@@ -9,16 +9,6 @@ const fs = require('fs');
 
 app.use(cookieParser());
 
-// res.setHeader("contenttype = json")
-// res.send("{a:b}")  => JSON.parse("{a:b}") = {a:b}
-// =
-// res.json({a: b})  => JSON.parse("{a:b}") = {a:b}
-
-// res.json("{a:b}")
-// =
-// res.setHeader("contenttype = json")
-// res.send("\{a\:b\}") JSON.parse("\{a\:b\}") = "{a:b}" JSON.parse( "{a:b}")
-
 app.use(function(req, res, next) {
   // Any client can get this information, I dont care what URL they are on
   res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
@@ -35,15 +25,12 @@ app.use(bodyParser.json());
 
 app.use((req, res, next) => {
   if (!req.cookies.userToken) {
-    console.log('hey1')
     next();
     return;
   }
 
   const userToken = req.cookies.userToken; //grab token from cookie
   getFileData('./sessiondata.json', (err, parsedSessions) => {
-    console.log('hey2')
-    
     //get user ID to match user token
     if (err) {
       throw err;
@@ -62,10 +49,6 @@ app.use((req, res, next) => {
     }
   });
 });
-
-// app.get((req, res) => {
-//   console.log(req.user);
-// });
 
 // req = request (what you got from the client)
 // res = response (what you are sending back to client)
@@ -149,8 +132,6 @@ app.post('/login', function(req, res) {
   });
 });
 
-// -then made an express middleware to check if the token in the cookie matches a user and then treat them as loggged in if it does:
-
 app.post('/signup', function(req, res) {
   const saltRounds = 10;
   //POSTs a new user
@@ -178,23 +159,27 @@ app.post('/signup', function(req, res) {
 
 app.get('/lists', function(req, res) {
   //GETs all lists
-  //if (!req.user) return res.status(403).end();
+  if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     if (req.query.authored === 'true') {
-      parsedLists = parsedLists.filter(list => (list.creator === req.user.userId));
-      return res.json(parsedLists); // sending to the client as a object      
+      parsedLists = parsedLists.filter(
+        list => list.creator === req.user.userId
+      );
+      return res.json(parsedLists); // sending to the client as a object
     }
-    parsedLists = parsedLists.filter(list => (list.creator === req.user.userId) || (list.privacy === 'public'));
+    parsedLists = parsedLists.filter(
+      list => list.creator === req.user.userId || list.privacy === 'public'
+    );
     return res.json(parsedLists); // sending to the client as a object
   });
 });
 
 app.get('/list/:listName', function(req, res) {
   //GETs a single todo list
-  //if (!req.user) return res.status(403).end();
+  if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
@@ -204,7 +189,7 @@ app.get('/list/:listName', function(req, res) {
       parsedLists.find(
         list =>
           list.name.toLowerCase() === name.toLowerCase() &&
-          ((list.creator === req.user.userId) || (list.privacy === 'public'))
+          (list.creator === req.user.userId || list.privacy === 'public')
       )
     );
   });
@@ -212,6 +197,7 @@ app.get('/list/:listName', function(req, res) {
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
+  if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
@@ -221,9 +207,9 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     const foundList = parsedLists.find(
       list =>
         list.name.toLowerCase() === name.toLowerCase() &&
-        list.creator === req.user.userId
+        (list.creator === req.user.userId || list.privacy === 'public')
     );
-    return res.json(foundList.todoList.find(item => item.id === todoId));
+    return res.json(foundList.todos.find(item => item.id === todoId));
   });
 });
 
@@ -234,8 +220,9 @@ app.post('/create', function(req, res) {
     if (err) {
       throw err;
     }
-    let newList = req.body; //create newTodo with body of request and give it an ID
-    let newData = [newList, ...parsedLists]; //update array on server with newTodo
+    //const newId = uuidV1();
+    let newList = Object.assign({}, req.body, { id: uuidV1() }); //create new list with body of request and give it an ID
+    let newData = [ newList, ...parsedLists]; //Object.assign({}, parsedLists, { newId: newList });  //update object on server with newTodo
     saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
       res.json(newList);
@@ -254,7 +241,7 @@ app.post('/list/:listName', function(req, res) {
     let newTodo = Object.assign({}, req.body, { id: uuidV1() }); //create newTodo with body of request and give it an ID
     parsedLists.forEach(list => {
       if (list.name === name) {
-        list.todoList = [newTodo, ...list.todoList];
+        list.todos = [newTodo, ...list.todos];
       }
     });
     saveFileData('./listdata.json', parsedLists, err => {
@@ -263,7 +250,6 @@ app.post('/list/:listName', function(req, res) {
     });
   });
 });
-
 
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
@@ -274,11 +260,11 @@ app.put('/list/:listName', function(req, res) {
     }
     const name = req.params.listName;
     let updatedLists = parsedLists.map(list => {
-        if (list.name !== name){
-            return list
-        }
-        return listToReturn = Object.assign({}, list, req.body);
-    })
+      if (list.name !== name) {
+        return list;
+      }
+      return (listToReturn = Object.assign({}, list, req.body));
+    });
 
     saveFileData('./listdata.json', updatedLists, err => {
       if (err) throw err;
@@ -299,13 +285,13 @@ app.put('/list/:listName/todo/:id', function(req, res) {
     let todoToReturn = {};
     parsedLists.forEach(list => {
       if (list.name === name) {
-        //find correct todoList in LoL
-        list.todoList = list.todoList.map(item => {
-          // replace old todoList with new one containing updated todo
+        //find correct todos in LoL
+        list.todos = list.todos.map(item => {
+          // replace old todos with new one containing updated todo
           if (item.id !== todoId) {
             return item;
           }
-          return todoToReturn = Object.assign({}, item, req.body); // req.body needed? yes, otherwise has a bunch of random data
+          return (todoToReturn = Object.assign({}, item, req.body)); // req.body needed? yes, otherwise has a bunch of random data
         });
       }
     });
@@ -377,7 +363,6 @@ app.put('/user/', function(req, res) {
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
-  console.log(req.user)
   if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
@@ -387,7 +372,7 @@ app.delete('/list/:listName/todo/:id', function(req, res) {
     const todoId = req.params.id;
     parsedLists.forEach(list => {
       if (list.name === name) {
-        list.todoList = list.todoList.filter(item => item.id !== todoId);
+        list.todos = list.todos.filter(item => item.id !== todoId);
       }
     });
     saveFileData('./listdata.json', parsedLists, err => {
@@ -405,10 +390,10 @@ app.delete('/list/:listName', function(req, res) {
       if (list.name === name) {
         if (req.query.completed === 'true') {
           //if clearing list of all completed
-          list.todoList = list.todoList.filter(item => item.completed !== true);
+          list.todos = list.todos.filter(item => item.completed !== true);
         } else if (req.query.all === 'true') {
           //if clearing list of all items
-          list.todoList = [];
+          list.todos = [];
         } else {
           //if deleting list altogether
           parsedLists = parsedLists.filter(list => list.name !== name);
