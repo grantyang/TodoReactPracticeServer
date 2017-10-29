@@ -225,8 +225,8 @@ app.post('/create', function(req, res) {
     let newData = [ newList, ...parsedLists]; //Object.assign({}, parsedLists, { newId: newList });  //update object on server with newTodo
     saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
-      res.json(newList);
     });
+    res.json(newList);    
   });
 });
 
