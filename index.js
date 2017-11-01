@@ -171,7 +171,7 @@ app.get('/lists', function(req, res) {
       return res.json(parsedLists); // sending to the client as a object
     }
     parsedLists = parsedLists.filter(
-      list => list.creator === req.user.userId || list.privacy === 'public'
+      list => list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1
     );
     return res.json(parsedLists); // sending to the client as a object
   });
@@ -189,7 +189,7 @@ app.get('/list/:listName', function(req, res) {
       parsedLists.find(
         list =>
           list.name.toLowerCase() === name.toLowerCase() &&
-          (list.creator === req.user.userId || list.privacy === 'public')
+          (list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1)
       )
     );
   });
@@ -207,7 +207,7 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     const foundList = parsedLists.find(
       list =>
         list.name.toLowerCase() === name.toLowerCase() &&
-        (list.creator === req.user.userId || list.privacy === 'public')
+        (list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1)
     );
     return res.json(foundList.todos.find(item => item.id === todoId));
   });
@@ -222,11 +222,11 @@ app.post('/create', function(req, res) {
     }
     //const newId = uuidV1();
     let newList = Object.assign({}, req.body, { id: uuidV1() }); //create new list with body of request and give it an ID
-    let newData = [ newList, ...parsedLists]; //Object.assign({}, parsedLists, { newId: newList });  //update object on server with newTodo
+    let newData = [newList, ...parsedLists]; //Object.assign({}, parsedLists, { newId: newList });  //update object on server with newTodo
     saveFileData('./listdata.json', newData, err => {
       if (err) throw err;
     });
-    res.json(newList);    
+    res.json(newList);
   });
 });
 
@@ -254,22 +254,70 @@ app.post('/list/:listName', function(req, res) {
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
   if (!req.user) return res.status(403).end();
+
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
       throw err;
     }
     const name = req.params.listName;
-    let updatedLists = parsedLists.map(list => {
-      if (list.name !== name) {
-        return list;
-      }
-      return (listToReturn = Object.assign({}, list, req.body));
-    });
-
-    saveFileData('./listdata.json', updatedLists, err => {
-      if (err) throw err;
-      res.json(listToReturn); //respond with listToReturn
-    });
+    let updatedLists = [];
+    if (req.query.authorizedusers === 'true') {
+      //if updating authorized user list
+      const newAuthorizedUserEmail = req.body.email;
+      let listToReturn = {};
+      getFileData('./userdata.json', (err, parsedUsers) => {
+        if (err) {
+          throw err;
+        }
+        //check for user existence
+        if (!parsedUsers.find(user => user.email === newAuthorizedUserEmail))
+          return res.status(404).send('no user');
+        const newAuthorizedUserId = parsedUsers.find(
+          user => user.email === newAuthorizedUserEmail
+        ).userId; //grab userId of user
+        //if new id is already in the list of authorized users, alert user
+        if (
+          parsedLists.find(
+            list =>
+              list.name === name &&
+              list.authorizedUsers.find(
+                userId => userId === newAuthorizedUserId
+              )
+          )
+        )
+          return res.status(404).send('duplicate');
+        updatedLists = parsedLists.map(list => {
+          if (list.name !== name) {
+            return list;
+          } else {
+            //otherwise add it to the list
+            const newAuthorizedUserList = [
+              ...list.authorizedUsers,
+              newAuthorizedUserId
+            ];
+            return (listToReturn = Object.assign({}, list, {
+              authorizedUsers: newAuthorizedUserList
+            }));
+          }
+        });
+        saveFileData('./listdata.json', updatedLists, err => {
+          if (err) throw err;
+          res.json(listToReturn); //respond with listToReturn
+        });
+      });
+    } else {
+      //if updating other fields on todoList
+      updatedLists = parsedLists.map(list => {
+        if (list.name !== name) {
+          return list;
+        }
+        return (listToReturn = Object.assign({}, list, req.body));
+      });
+      saveFileData('./listdata.json', updatedLists, err => {
+        if (err) throw err;
+        res.json(listToReturn); //respond with listToReturn
+      });
+    }
   });
 });
 
