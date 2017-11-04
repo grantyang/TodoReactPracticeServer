@@ -83,16 +83,13 @@ app.get('/uploadedPhotos/:fileName', function(req, res) {
 //ask CW put updating logic in here or pass path back to client to call update? call a put from a post? best practices
 app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
   const file = req.file; // file passed from client
-  const meta = req.body; // all other values passed from the client, like name, etc..
   if (!req.user) return res.status(403).end();
   if (!file) return res.status(400).send({ success: false });
+  const meta = req.body; // all other values passed from the client, like name, etc..
   const host = req.hostname;
   const newPictureLink = req.protocol + '://' + host + ':5000/' + req.file.path;
-
   //now store path to this file in our listdata file
-
   if (req.query.type === 'profile') {
-    console.log('wooo');
     const userId = req.user.userId;
     const updatedUser = Object.assign({}, req.user, {
       profilePictureLink: newPictureLink
@@ -116,30 +113,35 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
 
   //each todo item has an array that contains paths to photos uploaded to it
   //presentational component will read this array and for each, GET the proper resource from the images folder.
-  // getFileData('./listdata.json', (err, parsedLists) => {
-  //   if (err) {
-  //     throw err;
-  //   }
-  //   const name = req.params.listName;
-  //   const todoId = req.params.id; //req.params.id pulls from :id part of url
-  //   let todoToReturn = {};
-  //   parsedLists.forEach(list => {
-  //     if (list.name === name) {
-  //       //find correct todos in LoL
-  //       list.todos = list.todos.map(item => {
-  //         // replace old todos with new one containing updated todo
-  //         if (item.id !== todoId) {
-  //           return item;
-  //         }
-  //         return (todoToReturn = Object.assign({}, item, req.body)); // req.body needed? yes, otherwise has a bunch of random data
-  //       });
-  //     }
-  //   });
-  //   saveFileData('./listdata.json', parsedLists, err => {
-  //     if (err) throw err;
-  //     res.json(todoToReturn);
-  //   });
-  // });
+  if (req.query.type === 'todoitem') {
+    getFileData('./listdata.json', (err, parsedLists) => {
+      if (err) {
+        throw err;
+      }
+      const name = req.query.listname;
+      const todoId = req.query.todoid; //req.params.id pulls from :id part of url
+      let todoToReturn = {};
+      parsedLists.forEach(list => {
+        if (list.name === name) {
+          //find correct todos in LoL
+          list.todos = list.todos.map(item => {
+            // replace old todos with new one containing updated todo
+            if (item.id !== todoId) {
+              return item;
+            }
+            return (todoToReturn = Object.assign({}, item, {
+              pictureLinks: item.pictureLinks.concat(newPictureLink)
+            })); // adds new picture link to existing array
+          });
+        }
+      });
+      // console.log(todoToReturn);
+      saveFileData('./listdata.json', parsedLists, err => {
+        if (err) throw err;
+        res.json(todoToReturn);
+      });
+    });
+  }
 });
 // another way to do it is to use express static file server. google "express serve static files"
 // expressStatic("/folder_name")
