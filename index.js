@@ -3,6 +3,7 @@ var app = express();
 var bodyParser = require('body-parser');
 var bcrypt = require('bcrypt');
 var cookieParser = require('cookie-parser');
+var multer = require('multer');
 
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
@@ -22,6 +23,8 @@ app.use(function(req, res, next) {
 });
 
 app.use(bodyParser.json());
+
+//app.use(express.static(__dirname, 'public'));
 
 app.use((req, res, next) => {
   if (!req.cookies.userToken) {
@@ -50,8 +53,106 @@ app.use((req, res, next) => {
   });
 });
 
-// req = request (what you got from the client)
-// res = response (what you are sending back to client)
+// configuring Multer to use files directory for storing files
+// this is important because later we'll need to access file path
+const storage = multer.diskStorage({
+  destination: './uploadedPhotos',
+  filename(req, file, callback) {
+    callback(null, `${new Date()}-${file.originalname}`);
+  }
+});
+
+var upload = multer({ storage });
+
+app.get('/uploadedPhotos/:fileName', function(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'image/png'
+  });
+  fs.createReadStream(`./uploadedPhotos/${req.params.fileName}`).pipe(res);
+});
+
+// // alternatively, if we want to load the whole file before serving
+// app.get('/files/:fileName', function(req, res) {
+//   fs.readFile(`./files/${req.params.fileName}`, function(err, data) {
+//     if (err) throw err;
+//     res.write(data, 'image/png');
+//     res.end();
+//   });
+// });
+
+//ask CW put updating logic in here or pass path back to client to call update? call a put from a post? best practices
+app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
+  const file = req.file; // file passed from client
+  const meta = req.body; // all other values passed from the client, like name, etc..
+  if (!req.user) return res.status(403).end();
+  if (!file) return res.status(400).send({ success: false });
+  const host = req.hostname;
+  const newPictureLink = req.protocol + '://' + host + ':5000/' + req.file.path;
+
+  //now store path to this file in our listdata file
+
+  if (req.query.type === 'profile') {
+    console.log('wooo');
+    const userId = req.user.userId;
+    const updatedUser = Object.assign({}, req.user, {
+      profilePictureLink: newPictureLink
+    });
+    getFileData('./userdata.json', (err, parsedUsers) => {
+      if (err) {
+        throw err;
+      }
+      const newUsers = parsedUsers.map(user => {
+        if (user.userId !== userId) {
+          return user;
+        }
+        return updatedUser;
+      });
+      saveFileData('./userdata.json', newUsers, err => {
+        if (err) throw err;
+        res.json(updatedUser);
+      });
+    });
+  }
+
+  //each todo item has an array that contains paths to photos uploaded to it
+  //presentational component will read this array and for each, GET the proper resource from the images folder.
+  // getFileData('./listdata.json', (err, parsedLists) => {
+  //   if (err) {
+  //     throw err;
+  //   }
+  //   const name = req.params.listName;
+  //   const todoId = req.params.id; //req.params.id pulls from :id part of url
+  //   let todoToReturn = {};
+  //   parsedLists.forEach(list => {
+  //     if (list.name === name) {
+  //       //find correct todos in LoL
+  //       list.todos = list.todos.map(item => {
+  //         // replace old todos with new one containing updated todo
+  //         if (item.id !== todoId) {
+  //           return item;
+  //         }
+  //         return (todoToReturn = Object.assign({}, item, req.body)); // req.body needed? yes, otherwise has a bunch of random data
+  //       });
+  //     }
+  //   });
+  //   saveFileData('./listdata.json', parsedLists, err => {
+  //     if (err) throw err;
+  //     res.json(todoToReturn);
+  //   });
+  // });
+});
+// another way to do it is to use express static file server. google "express serve static files"
+// expressStatic("/folder_name")
+
+app.get('/users', function(req, res) {
+  //GETs all users
+  getFileData('./userdata.json', (err, parsedUsers) => {
+    if (err) {
+      throw err;
+    }
+    res.json(parsedUsers); // sending to the client as a object
+  });
+});
 
 getFileData = (fileName, callback) => {
   //reads from file and parses data for us
@@ -171,7 +272,10 @@ app.get('/lists', function(req, res) {
       return res.json(parsedLists); // sending to the client as a object
     }
     parsedLists = parsedLists.filter(
-      list => list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1
+      list =>
+        list.creator === req.user.userId ||
+        list.privacy === 'public' ||
+        list.authorizedUsers.indexOf(req.user.userId) !== -1
     );
     return res.json(parsedLists); // sending to the client as a object
   });
@@ -189,7 +293,9 @@ app.get('/list/:listName', function(req, res) {
       parsedLists.find(
         list =>
           list.name.toLowerCase() === name.toLowerCase() &&
-          (list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1)
+          (list.creator === req.user.userId ||
+            list.privacy === 'public' ||
+            list.authorizedUsers.indexOf(req.user.userId) !== -1)
       )
     );
   });
@@ -207,7 +313,9 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     const foundList = parsedLists.find(
       list =>
         list.name.toLowerCase() === name.toLowerCase() &&
-        (list.creator === req.user.userId || list.privacy === 'public' || list.authorizedUsers.indexOf(req.user.userId) !== -1)
+        (list.creator === req.user.userId ||
+          list.privacy === 'public' ||
+          list.authorizedUsers.indexOf(req.user.userId) !== -1)
     );
     return res.json(foundList.todos.find(item => item.id === todoId));
   });
