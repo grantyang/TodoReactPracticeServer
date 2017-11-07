@@ -4,9 +4,13 @@ var bodyParser = require('body-parser');
 var bcrypt = require('bcrypt');
 var cookieParser = require('cookie-parser');
 var multer = require('multer');
-
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
+
+const { Client } = require('pg');
+var connectionString = 'postgres://grantyang@localhost:5432/tododb';
+const client = new Client(connectionString);
+client.connect();
 
 app.use(cookieParser());
 
@@ -26,28 +30,33 @@ app.use(bodyParser.json());
 
 //app.use(express.static(__dirname, 'public'));
 
+
 app.use((req, res, next) => {
   if (!req.cookies.userToken) {
+    //if no cookie exists
     next();
     return;
   }
-
   const userToken = req.cookies.userToken; //grab token from cookie
-  getFileData('./sessiondata.json', (err, parsedSessions) => {
-    //get user ID to match user token
+  const text = 'SELECT * FROM active_sessions WHERE usertoken = $1';
+  const values = [userToken];
+  client.query(text, values, (err, sqlres) => {
     if (err) {
       throw err;
     }
-    if (!parsedSessions[userToken]) return res.status('401').next(); //if no matching user, return error code
-    if (parsedSessions[userToken]) {
-      let currentUserId = parsedSessions[userToken]; //set userId if token matches
-      getFileData('./userdata.json', (err, parsedUsers) => {
+    if (!sqlres.rows[0]) return res.status('401'); //if no matching user, return error code
+
+    if (sqlres.rows[0]) {
+      let currentUserId = sqlres.rows[0].userid; //set userId if token matches
+      const text = 'SELECT * FROM users WHERE userid = $1';
+      const values = [currentUserId];
+      client.query(text, values, (err, sqlres) => {
         //get user data to match user ID
         if (err) {
           throw err;
         }
-        req.user = parsedUsers.find(user => user.userId === currentUserId); //set req.user to found user
-        req.next();
+        req.user = sqlres.rows[0]; //set req.user to found user
+        next();
       });
     }
   });
@@ -64,9 +73,11 @@ const storage = multer.diskStorage({
 
 var upload = multer({ storage });
 
+// another way to do it is to use express static file server. google "express serve static files"
+// expressStatic("/folder_name")
 app.get('/uploadedPhotos/:fileName', function(req, res) {
   res.writeHead(200, {
-    'Content-Type': 'image/png'
+    'Content-Type': 'image/jpg'
   });
   fs.createReadStream(`./uploadedPhotos/${req.params.fileName}`).pipe(res);
 });
@@ -143,18 +154,6 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
     });
   }
 });
-// another way to do it is to use express static file server. google "express serve static files"
-// expressStatic("/folder_name")
-
-app.get('/users', function(req, res) {
-  //GETs all users
-  getFileData('./userdata.json', (err, parsedUsers) => {
-    if (err) {
-      throw err;
-    }
-    res.json(parsedUsers); // sending to the client as a object
-  });
-});
 
 getFileData = (fileName, callback) => {
   //reads from file and parses data for us
@@ -189,79 +188,109 @@ app.get('/users', function(req, res) {
 });
 
 app.post('/login', function(req, res) {
-  let loginSuccess = false;
   const passwordInput = req.body.password;
   const emailInput = req.body.email;
-  getFileData('./userdata.json', (err, parsedUsers) => {
+
+  const text = 'SELECT * FROM users WHERE email = $1';
+  const values = [emailInput];
+  client.query(text, values, (err, sqlres) => {
     if (err) {
       throw err;
     }
-
-    //find proper user
-    const user = parsedUsers.find(user => user.email === emailInput);
-    //if no user found, send alert
-    if (!user) return res.status(401).send('email');
-
-    const userId = user.userId;
-    const hash = user.password;
-
-    bcrypt.compare(passwordInput, hash, function(err, match) {
-      if (err) {
-        throw err;
-      }
-      if (match) {
-        //if sucessful login
-        getFileData('./sessiondata.json', (err, parsedSessions) => {
-          //get old sessions from sessiondata
-          if (err) {
-            throw err;
-          }
-          const sessionToken = uuidV1();
-          parsedSessions[sessionToken] = userId; //add new session to sessiondata
-          saveFileData('./sessiondata.json', parsedSessions, err => {
-            if (err) throw err;
-            res.cookie('userToken', sessionToken, {
+    if (!sqlres.rows[0]) {
+      //if no matching email found, send alert
+      return res.status(401).send('email');
+    } else {
+      const userId = sqlres.rows[0].userid;
+      const hash = sqlres.rows[0].password;
+      bcrypt.compare(passwordInput, hash, function(err, match) {
+        if (err) {
+          throw err;
+        }
+        if (match) {
+          //if sucessful login
+          const text =
+            'INSERT INTO active_sessions(userId) VALUES($1) RETURNING *';
+          const values = [userId];
+          client.query(text, values, (err, sqlres) => {
+            if (err) {
+              throw err;
+            }
+            res.cookie('userToken', sqlres.rows[0].usertoken, {
               maxAge: 1000 * 60 * 150 // expires after 150 minutes
             });
             return res.send('success');
           });
-        });
-      }
-      if (!match) {
-        //if wrong password
-        return res.status(401).send('password');
-      }
-    });
+        }
+        if (!match) {
+          //if wrong password
+          return res.status(401).send('password');
+        }
+      });
+    }
   });
 });
 
 app.post('/signup', function(req, res) {
   const saltRounds = 10;
   //POSTs a new user
-  getFileData('./userdata.json', (err, parsedUsers) => {
+  const text = 'SELECT * FROM users WHERE email = $1';
+  const values = [req.body.email];
+  client.query(text, values, (err, res) => {
     if (err) {
       throw err;
     }
-    const user = parsedUsers.find(user => user.email === req.body.email);
-    //if duplicate user found, send alert
-    if (user) return res.status(401).end();
-
-    let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create user with body of request and give it an ID
-    bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
-      // Store hashed pw in DB.
-      newUser.password = hash;
-      let newUsers = [newUser, ...parsedUsers];
-
-      saveFileData('./userdata.json', newUsers, err => {
-        if (err) throw err;
-        res.json(newUser);
+    if (res.rows[0]) {
+      //if duplicate user found, send alert
+      return res.status(401).end();
+    } else {
+      bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+        const text =
+          'INSERT INTO users(name, email, password, profilePictureLink, userCustomTags) VALUES($1, $2, $3, $4, $5) RETURNING *';
+        const values = [
+          req.body.name,
+          req.body.email,
+          hash,
+          req.body.profilePictureLink,
+          req.body.userCustomTags
+        ];
+        client.query(text, values, (err, res) => {
+          if (err) {
+            throw err;
+          }
+          return res.rows[0];
+        });
       });
-    });
+    }
   });
 });
 
+// getFileData('./userdata.json', (err, parsedUsers) => {
+//   if (err) {
+//     throw err;
+//   }
+//   const user = parsedUsers.find(user => user.email === req.body.email);
+//   //if duplicate user found, send alert
+//   if (user) return res.status(401).end();
+
+//   let newUser = Object.assign({}, req.body, { userId: uuidV1() }); //create user with body of request and give it an ID
+//   bcrypt.hash(newUser.password, saltRounds, function(err, hash) {
+//     // Store hashed pw in DB.
+//     newUser.password = hash;
+//     let newUsers = [newUser, ...parsedUsers];
+
+//     saveFileData('./userdata.json', newUsers, err => {
+//       if (err) throw err;
+//       res.json(newUser);
+//     });
+//   });
+// });
+
 app.get('/lists', function(req, res) {
   //GETs all lists
+  console.log('yo, yo.')
+  console.log(req.user)
+  
   if (!req.user) return res.status(403).end();
   getFileData('./listdata.json', (err, parsedLists) => {
     if (err) {
