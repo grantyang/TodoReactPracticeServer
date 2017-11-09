@@ -493,11 +493,7 @@ app.put('/user/', function(req, res) {
   const saltRounds = 10;
 
   if (!req.user) return res.status(403).end();
-  getFileData('./userdata.json', (err, parsedUsers) => {
-    if (err) {
-      throw err;
-    }
-    if (req.query.changepassword === 'true') {
+  if (req.query.changepassword === 'true') {
       //change password
       //check to see if old password matches
       bcrypt.compare(req.body.oldPassword, req.user.password, function(
@@ -508,19 +504,17 @@ app.put('/user/', function(req, res) {
           throw err;
         }
         if (match) {
-          //if so, update password in userdata.json
+          //if so, update password in database
           bcrypt.hash(req.body.newPassword, saltRounds, function(err, hash) {
-            //hash new password
-            let updatedUser = Object.assign({}, req.user, { password: hash });
-            const newUsers = parsedUsers.map(user => {
-              if (user.userId !== userId) {
-                return user;
+            //hash new password and update
+            const text = `UPDATE users SET password = $1
+            WHERE user_id = $2 RETURNING *`;
+            const values = [hash, userId];
+            client.query(text, values, (err, result) => {
+              if (err) {
+                throw err;
               }
-              return updatedUser;
-            });
-            saveFileData('./userdata.json', newUsers, err => {
-              if (err) throw err;
-              return res.json(updatedUser);
+              res.json(result.rows[0]);
             });
           });
         }
@@ -531,19 +525,22 @@ app.put('/user/', function(req, res) {
       });
     } else {
       //change non-password fields
-      const updatedUser = Object.assign({}, req.user, req.body);
-      const newUsers = parsedUsers.map(user => {
-        if (user.userId !== userId) {
-          return user;
-        }
-        return updatedUser;
-      });
-      saveFileData('./userdata.json', newUsers, err => {
-        if (err) throw err;
-        res.json(updatedUser);
-      });
-    }
-  });
+      const text = `UPDATE users SET name = $1, email = $2, user_custom_tags = $3
+      WHERE user_id = $4 RETURNING *`;
+    const values = [
+      req.body.name,
+      req.body.email,
+      req.body.user_custom_tags,
+      userId
+        ];
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      res.json(result.rows[0]);
+    });
+
+  }
 });
 
 app.delete('/list/:listName/todo/:id', function(req, res) {
