@@ -8,7 +8,6 @@ const uuidV1 = require('uuid/v1');
 const fs = require('fs');
 
 const pg = require('pg');
-pg.types.setTypeParser(1114, str => str);
 
 var connectionString = 'postgres://grantyang@localhost:5432/tododb';
 const client = new pg.Client(connectionString);
@@ -128,21 +127,21 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
   }
 });
 
-getFileData = (fileName, callback) => {
-  //reads from file and parses data for us
-  fs.readFile(fileName, 'utf8', function(err, data) {
-    if (err) return callback(err);
-    callback(null, JSON.parse(data));
-  });
-};
+// getFileData = (fileName, callback) => {
+//   //reads from file and parses data for us
+//   fs.readFile(fileName, 'utf8', function(err, data) {
+//     if (err) return callback(err);
+//     callback(null, JSON.parse(data));
+//   });
+// };
 
-saveFileData = (fileName, newData, callback) => {
-  //saves to file and stringifys data for us
-  fs.writeFile(fileName, JSON.stringify(newData), function(err) {
-    if (err) return callback(err);
-    callback();
-  });
-};
+// saveFileData = (fileName, newData, callback) => {
+//   //saves to file and stringifys data for us
+//   fs.writeFile(fileName, JSON.stringify(newData), function(err) {
+//     if (err) return callback(err);
+//     callback();
+//   });
+// };
 
 app.get('/user', function(req, res) {
   //GETs logged in user
@@ -233,7 +232,7 @@ app.post('/signup', function(req, res) {
           if (err) {
             throw err;
           }
-          return res.rows[0];
+          return res.rows[0].end();
         });
       });
     }
@@ -321,7 +320,6 @@ app.get('/list/:listName/todo/:id', function(req, res) {
     if (err) {
       throw err;
     }
-    console.log(result.rows[0])
     res.json(result.rows[0]);
   });
 });
@@ -494,52 +492,52 @@ app.put('/user/', function(req, res) {
 
   if (!req.user) return res.status(403).end();
   if (req.query.changepassword === 'true') {
-      //change password
-      //check to see if old password matches
-      bcrypt.compare(req.body.oldPassword, req.user.password, function(
-        err,
-        match
-      ) {
-        if (err) {
-          throw err;
-        }
-        if (match) {
-          //if so, update password in database
-          bcrypt.hash(req.body.newPassword, saltRounds, function(err, hash) {
-            //hash new password and update
-            const text = `UPDATE users SET password = $1
+    //change password
+    //check to see if old password matches
+    bcrypt.compare(req.body.oldPassword, req.user.password, function(
+      err,
+      match
+    ) {
+      if (err) {
+        throw err;
+      }
+      if (match) {
+        //if so, update password in database
+        bcrypt.hash(req.body.newPassword, saltRounds, function(err, hash) {
+          //hash new password and update
+          const text = `UPDATE users SET password = $1
             WHERE user_id = $2 RETURNING *`;
-            const values = [hash, userId];
-            client.query(text, values, (err, result) => {
-              if (err) {
-                throw err;
-              }
-              res.json(result.rows[0]);
-            });
+          const values = [hash, userId];
+          client.query(text, values, (err, result) => {
+            if (err) {
+              throw err;
+            }
+            res.json(result.rows[0]);
           });
-        }
-        if (!match) {
-          //if wrong password
-          return res.status(401).send('password');
-        }
-      });
-    } else {
-      //change non-password fields
-      const text = `UPDATE users SET name = $1, email = $2, user_custom_tags = $3
+        });
+      }
+      if (!match) {
+        //if wrong password
+        return res.status(401).send('password');
+      }
+    });
+  } else {
+    //change non-password fields
+    let updatedUser = Object.assign({}, req.user, req.body); //create user with body of request and give it an ID
+    const text = `UPDATE users SET name = $1, email = $2, user_custom_tags = $3
       WHERE user_id = $4 RETURNING *`;
     const values = [
-      req.body.name,
-      req.body.email,
-      req.body.user_custom_tags,
+      updatedUser.name,
+      updatedUser.email,
+      updatedUser.user_custom_tags,
       userId
-        ];
+    ];
     client.query(text, values, (err, result) => {
       if (err) {
         throw err;
       }
       res.json(result.rows[0]);
     });
-
   }
 });
 
