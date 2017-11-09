@@ -38,7 +38,9 @@ app.use((req, res, next) => {
     return;
   }
   const userToken = req.cookies.userToken; //grab token from cookie
-  const text = 'SELECT * FROM active_sessions WHERE user_token = $1';
+  const text = `SELECT * FROM active_sessions 
+  JOIN users ON users.user_id = active_sessions.user_id 
+  WHERE user_token = $1`;
   const values = [userToken];
   client.query(text, values, (err, result) => {
     if (err) {
@@ -46,19 +48,8 @@ app.use((req, res, next) => {
     }
     if (!result.rows[0]) return res.status('401'); //if no matching user, return error code
 
-    if (result.rows[0]) {
-      let currentUserId = result.rows[0].user_id; //set userId if token matches
-      const text = 'SELECT * FROM users WHERE user_id = $1';
-      const values = [currentUserId];
-      client.query(text, values, (err, result) => {
-        //get user data to match user ID
-        if (err) {
-          throw err;
-        }
-        req.user = result.rows[0]; //set req.user to found user
-        next();
-      });
-    }
+    req.user = result.rows[0]; //set req.user to found user
+    next();
   });
 });
 
@@ -465,8 +456,9 @@ app.put('/list/:listName', function(req, res) {
 app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
   if (!req.user) return res.status(403).end();
-  const text = `UPDATE todos SET text = $1, completed = $2, tag = $3, due_date = $4, latitude = $5, longitude = $6, rich_text_comment = $7 
-    WHERE todo_id = $8 RETURNING *`;
+  const text = `UPDATE todos 
+  SET text = $1, completed = $2, tag = $3, due_date = $4, latitude = $5, longitude = $6, rich_text_comment = $7 
+  WHERE todo_id = $8 RETURNING *`;
   const values = [
     req.body.text,
     req.body.completed,
@@ -489,7 +481,6 @@ app.put('/user/', function(req, res) {
   //PUT updates logged in user
   const userId = req.user.user_id;
   const saltRounds = 10;
-
   if (!req.user) return res.status(403).end();
   if (req.query.changepassword === 'true') {
     //change password
@@ -557,49 +548,41 @@ app.delete('/list/:listName/todo/:id', function(req, res) {
 
 app.delete('/list/:listName', function(req, res) {
   if (!req.user) return res.status(403).end();
-  let text = 'SELECT * FROM todo_lists WHERE name = $1';
-  let values = [req.params.listName];
-  client.query(text, values, (err, result) => {
-    if (err) {
-      throw err;
-    }
-    if (req.query.completed === 'true') {
-      text = 'DELETE FROM todos WHERE owner_id = $1 AND completed = true';
-      values = [result.rows[0].list_id];
-      client.query(text, values, (err, result) => {
-        if (err) {
-          throw err;
-        }
-        return;
-      });
-    } else if (req.query.all === 'true') {
-      text = 'DELETE FROM todos WHERE owner_id = $1';
-      values = [result.rows[0].list_id];
-      client.query(text, values, (err, result) => {
-        if (err) {
-          throw err;
-        }
-        return;
-      });
-    } else {
-      text = 'DELETE FROM todos WHERE owner_id = $1'; //delete todos from todo table
-      values = [result.rows[0].list_id];
-      client.query(text, values, (err, result) => {
-        if (err) {
-          throw err;
-        }
-      });
-      text = 'DELETE FROM todo_lists WHERE list_id = $1'; //delete list from todo_list table
-      values = [result.rows[0].list_id];
-      client.query(text, values, (err, result) => {
-        if (err) {
-          throw err;
-        }
-        return;
-      });
-    }
-    res.end();
-  });
+  let values = [req.params.listName];  
+  if (req.query.completed === 'true') {
+    text = `DELETE FROM todos USING todo_lists WHERE todos.owner_id=todo_lists.list_id
+     AND todo_lists.name = $1 AND completed = true`;
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      return res.end();
+    });
+  } else if (req.query.all === 'true') {
+    text = `DELETE FROM todos USING todo_lists WHERE todos.owner_id=todo_lists.list_id
+     AND todo_lists.name = $1`;
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      return res.end();
+    });
+  } else {
+    text = `DELETE FROM todos USING todo_lists WHERE todos.owner_id=todo_lists.list_id
+    AND todo_lists.name = $1`; //delete todos from todo table
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+    });
+    text = 'DELETE FROM todo_lists WHERE todo_lists.name = $1'; //delete list from todo_list table
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      return res.end();
+    });
+  }
 });
 
 app.listen(5000); //port
