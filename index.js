@@ -7,9 +7,11 @@ var multer = require('multer');
 const uuidV1 = require('uuid/v1');
 const fs = require('fs');
 
-const { Client } = require('pg');
+const pg = require('pg');
+pg.types.setTypeParser(1114, str => str);
+
 var connectionString = 'postgres://grantyang@localhost:5432/tododb';
-const client = new Client(connectionString);
+const client = new pg.Client(connectionString);
 client.connect();
 
 app.use(cookieParser());
@@ -30,7 +32,6 @@ app.use(bodyParser.json());
 
 //app.use(express.static(__dirname, 'public'));
 
-
 app.use((req, res, next) => {
   if (!req.cookies.userToken) {
     //if no cookie exists
@@ -38,24 +39,24 @@ app.use((req, res, next) => {
     return;
   }
   const userToken = req.cookies.userToken; //grab token from cookie
-  const text = 'SELECT * FROM active_sessions WHERE usertoken = $1';
+  const text = 'SELECT * FROM active_sessions WHERE user_token = $1';
   const values = [userToken];
-  client.query(text, values, (err, sqlres) => {
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    if (!sqlres.rows[0]) return res.status('401'); //if no matching user, return error code
+    if (!result.rows[0]) return res.status('401'); //if no matching user, return error code
 
-    if (sqlres.rows[0]) {
-      let currentUserId = sqlres.rows[0].userid; //set userId if token matches
-      const text = 'SELECT * FROM users WHERE userid = $1';
+    if (result.rows[0]) {
+      let currentUserId = result.rows[0].user_id; //set userId if token matches
+      const text = 'SELECT * FROM users WHERE user_id = $1';
       const values = [currentUserId];
-      client.query(text, values, (err, sqlres) => {
+      client.query(text, values, (err, result) => {
         //get user data to match user ID
         if (err) {
           throw err;
         }
-        req.user = sqlres.rows[0]; //set req.user to found user
+        req.user = result.rows[0]; //set req.user to found user
         next();
       });
     }
@@ -91,7 +92,6 @@ app.get('/uploadedPhotos/:fileName', function(req, res) {
 //   });
 // });
 
-//ask CW put updating logic in here or pass path back to client to call update? call a put from a post? best practices
 app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
   const file = req.file; // file passed from client
   if (!req.user) return res.status(403).end();
@@ -101,26 +101,19 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
   const newPictureLink = req.protocol + '://' + host + ':5000/' + req.file.path;
   //now store path to this file in our listdata file
   if (req.query.type === 'profile') {
-    const userId = req.user.userId;
-    const updatedUser = Object.assign({}, req.user, {
-      profilePictureLink: newPictureLink
-    });
-    getFileData('./userdata.json', (err, parsedUsers) => {
-      if (err) {
-        throw err;
-      }
-      const newUsers = parsedUsers.map(user => {
-        if (user.userId !== userId) {
-          return user;
-        }
-        return updatedUser;
-      });
-      saveFileData('./userdata.json', newUsers, err => {
-        if (err) throw err;
-        res.json(updatedUser);
-      });
-    });
-  }
+    const userId = req.user.user_id;
+    const text =
+    `UPDATE users SET profile_picture_link = $1
+    WHERE user_id = $2 RETURNING *`;
+  const values = [newPictureLink, userId];
+  client.query(text, values, (err, result) => {
+    if (err) {
+      throw err;
+    }
+    res.json(result.rows[0]);
+  });
+}
+
 
   //each todo item has an array that contains paths to photos uploaded to it
   //presentational component will read this array and for each, GET the proper resource from the images folder.
@@ -146,7 +139,6 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
           });
         }
       });
-      // console.log(todoToReturn);
       saveFileData('./listdata.json', parsedLists, err => {
         if (err) throw err;
         res.json(todoToReturn);
@@ -179,11 +171,13 @@ app.get('/user', function(req, res) {
 
 app.get('/users', function(req, res) {
   //GETs all users
-  getFileData('./userdata.json', (err, parsedUsers) => {
+  const text = 'SELECT * FROM users';
+  const values = [];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    res.json(parsedUsers); // sending to the client as a object
+    res.json(result.rows);
   });
 });
 
@@ -193,16 +187,16 @@ app.post('/login', function(req, res) {
 
   const text = 'SELECT * FROM users WHERE email = $1';
   const values = [emailInput];
-  client.query(text, values, (err, sqlres) => {
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    if (!sqlres.rows[0]) {
+    if (!result.rows[0]) {
       //if no matching email found, send alert
       return res.status(401).send('email');
     } else {
-      const userId = sqlres.rows[0].userid;
-      const hash = sqlres.rows[0].password;
+      const userId = result.rows[0].user_id;
+      const hash = result.rows[0].password;
       bcrypt.compare(passwordInput, hash, function(err, match) {
         if (err) {
           throw err;
@@ -210,13 +204,13 @@ app.post('/login', function(req, res) {
         if (match) {
           //if sucessful login
           const text =
-            'INSERT INTO active_sessions(userId) VALUES($1) RETURNING *';
+            'INSERT INTO active_sessions(user_id) VALUES($1) RETURNING *';
           const values = [userId];
-          client.query(text, values, (err, sqlres) => {
+          client.query(text, values, (err, result) => {
             if (err) {
               throw err;
             }
-            res.cookie('userToken', sqlres.rows[0].usertoken, {
+            res.cookie('userToken', result.rows[0].user_token, {
               maxAge: 1000 * 60 * 150 // expires after 150 minutes
             });
             return res.send('success');
@@ -246,7 +240,7 @@ app.post('/signup', function(req, res) {
     } else {
       bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
         const text =
-          'INSERT INTO users(name, email, password, profilePictureLink, userCustomTags) VALUES($1, $2, $3, $4, $5) RETURNING *';
+          'INSERT INTO users(name, email, password, profile_picture_link, user_custom_tags) VALUES($1, $2, $3, $4, $5) RETURNING *';
         const values = [
           req.body.name,
           req.body.email,
@@ -288,210 +282,231 @@ app.post('/signup', function(req, res) {
 
 app.get('/lists', function(req, res) {
   //GETs all lists
-  console.log('yo, yo.')
-  console.log(req.user)
-  
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  if (req.query.authored === 'true') {
+    const text = 'SELECT * FROM todo_lists WHERE creator = $1';
+    const values = [req.user.user_id];
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      res.json(result.rows);
+    });
+  }
+  const text = `SELECT todo_lists.list_id, todo_lists.name, todo_lists.creator, todo_lists.privacy, COUNT(todos.todo_id)
+  FROM todo_lists 
+  LEFT JOIN todos ON todos.owner_id=todo_lists.list_id 
+  LEFT JOIN list_permissions ON list_permissions.list_id=todo_lists.list_id 
+  WHERE creator = $1 OR privacy = $2 OR user_id = $1
+  GROUP BY todo_lists.list_id, todo_lists.name, todo_lists.creator, todo_lists.privacy`;
+  const values = [req.user.user_id, 'public'];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    if (req.query.authored === 'true') {
-      parsedLists = parsedLists.filter(
-        list => list.creator === req.user.userId
-      );
-      return res.json(parsedLists); // sending to the client as a object
-    }
-    parsedLists = parsedLists.filter(
-      list =>
-        list.creator === req.user.userId ||
-        list.privacy === 'public' ||
-        list.authorizedUsers.indexOf(req.user.userId) !== -1
-    );
-    return res.json(parsedLists); // sending to the client as a object
+    res.json(result.rows);
   });
 });
 
 app.get('/list/:listName', function(req, res) {
   //GETs a single todo list
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text = `SELECT todo_lists.list_id, creator, name, privacy, todo_id, owner_id, text, completed, tag, due_date, latitude, longitude, rich_text_comment
+  FROM todo_lists  
+  LEFT JOIN todos ON todo_lists.list_id=todos.owner_id  
+  LEFT JOIN list_permissions ON list_permissions.list_id=todo_lists.list_id   
+  WHERE todo_lists.name = $1 AND (todo_lists.creator =$2 OR user_id = $2 OR privacy = $3)`;
+  const values = [req.params.listName, req.user.user_id, 'public'];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    return res.json(
-      parsedLists.find(
-        list =>
-          list.name.toLowerCase() === name.toLowerCase() &&
-          (list.creator === req.user.userId ||
-            list.privacy === 'public' ||
-            list.authorizedUsers.indexOf(req.user.userId) !== -1)
-      )
-    );
+    res.json(result.rows);
   });
 });
 
 app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
+  //GY add authoried users, etc
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text = `SELECT * FROM todo_lists 
+  JOIN todos ON todo_lists.list_id=todos.owner_id  
+  LEFT JOIN list_permissions ON list_permissions.list_id=todo_lists.list_id  
+  WHERE todo_id = $1 AND (todo_lists.creator =$2 OR user_id = $2 OR privacy = $3)`;
+  const values = [req.params.id, req.user.user_id, 'public'];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    const todoId = req.params.id; //req.params.id pulls from :id part of url
-    const foundList = parsedLists.find(
-      list =>
-        list.name.toLowerCase() === name.toLowerCase() &&
-        (list.creator === req.user.userId ||
-          list.privacy === 'public' ||
-          list.authorizedUsers.indexOf(req.user.userId) !== -1)
-    );
-    return res.json(foundList.todos.find(item => item.id === todoId));
+    res.json(result.rows[0]);
   });
 });
 
 app.post('/create', function(req, res) {
   //POSTs a new todo list
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text =
+    'INSERT INTO todo_lists(creator, name, privacy) VALUES($1, $2, $3) RETURNING *';
+  const values = [req.body.creator, req.body.name, req.body.privacy];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    //const newId = uuidV1();
-    let newList = Object.assign({}, req.body, { id: uuidV1() }); //create new list with body of request and give it an ID
-    let newData = [newList, ...parsedLists]; //Object.assign({}, parsedLists, { newId: newList });  //update object on server with newTodo
-    saveFileData('./listdata.json', newData, err => {
-      if (err) throw err;
-    });
-    res.json(newList);
+    res.json(result.rows[0]);
   });
 });
 
 app.post('/list/:listName', function(req, res) {
   //POSTs a new todo item to a todo list
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text = `INSERT INTO todos(owner_id, text, completed, tag, due_date, latitude, longitude, rich_text_comment) 
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8) 
+    RETURNING *`;
+  const values = [
+    req.body.ownerId,
+    req.body.text,
+    req.body.completed,
+    req.body.tag,
+    req.body.dueDate,
+    req.body.latitude,
+    req.body.longitude,
+    req.body.richTextComment
+  ];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    let newTodo = Object.assign({}, req.body, { id: uuidV1() }); //create newTodo with body of request and give it an ID
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        list.todos = [newTodo, ...list.todos];
-      }
-    });
-    saveFileData('./listdata.json', parsedLists, err => {
-      if (err) throw err;
-      res.json(newTodo); //respond with newTodo
-    });
+    res.json(result.rows[0]);
+  });
+});
+
+app.post('/listpermissions/:listName', function(req, res) {
+  //POSTs a new authorized user
+  if (!req.user) return res.status(403).end();
+  const text = `SELECT * FROM users WHERE email = $1`;
+  const values = [req.body.email];
+  //check is entered user email exists
+  client.query(text, values, (err, result) => {
+    if (err) {
+      throw err;
+    }
+    if (result.rows[0]) {
+      const text = ` SELECT * FROM list_permissions 
+      JOIN users ON list_permissions.user_id = users.user_id 
+      AND users.email = $1
+      JOIN todo_lists ON list_permissions.list_id = todo_lists.list_id
+      AND todo_lists.name = $2`;
+      const values = [req.body.email, req.params.listName];
+      //check to see if user is already authorized
+      client.query(text, values, (err, result) => {
+        if (err) {
+          throw err;
+        }
+        if (result.rows[0]) {
+          return res.status(404).send('duplicate');
+        }
+        const text = `INSERT INTO list_permissions (user_id, list_id)
+        SELECT users.user_id, todo_lists.list_id 
+        FROM users, todo_lists 
+        WHERE users.email = $1
+        AND todo_lists.name = $2
+        RETURNING *`;
+        const values = [req.body.email, req.params.listName];
+        //else, add user to list_permissions database
+        client.query(text, values, (err, result) => {
+          if (err) {
+            throw err;
+          }
+          return res.json(result.rows[0]);
+        });
+      });
+    } else return res.status(404).send('no user');
   });
 });
 
 app.put('/list/:listName', function(req, res) {
   //PUT updates a list
   if (!req.user) return res.status(403).end();
-
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text =
+    'UPDATE todo_lists SET name = $1, privacy = $2 WHERE name = $3  RETURNING *';
+  const values = [req.body.name, req.body.privacy, req.params.listName];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    let updatedLists = [];
-    if (req.query.authorizedusers === 'true') {
-      //if updating authorized user list
-      const newAuthorizedUserEmail = req.body.email;
-      let listToReturn = {};
-      getFileData('./userdata.json', (err, parsedUsers) => {
-        if (err) {
-          throw err;
-        }
-        //check for user existence
-        if (!parsedUsers.find(user => user.email === newAuthorizedUserEmail))
-          return res.status(404).send('no user');
-        const newAuthorizedUserId = parsedUsers.find(
-          user => user.email === newAuthorizedUserEmail
-        ).userId; //grab userId of user
-        //if new id is already in the list of authorized users, alert user
-        if (
-          parsedLists.find(
-            list =>
-              list.name === name &&
-              list.authorizedUsers.find(
-                userId => userId === newAuthorizedUserId
-              )
-          )
-        )
-          return res.status(404).send('duplicate');
-        updatedLists = parsedLists.map(list => {
-          if (list.name !== name) {
-            return list;
-          } else {
-            //otherwise add it to the list
-            const newAuthorizedUserList = [
-              ...list.authorizedUsers,
-              newAuthorizedUserId
-            ];
-            return (listToReturn = Object.assign({}, list, {
-              authorizedUsers: newAuthorizedUserList
-            }));
-          }
-        });
-        saveFileData('./listdata.json', updatedLists, err => {
-          if (err) throw err;
-          res.json(listToReturn); //respond with listToReturn
-        });
-      });
-    } else {
-      //if updating other fields on todoList
-      updatedLists = parsedLists.map(list => {
-        if (list.name !== name) {
-          return list;
-        }
-        return (listToReturn = Object.assign({}, list, req.body));
-      });
-      saveFileData('./listdata.json', updatedLists, err => {
-        if (err) throw err;
-        res.json(listToReturn); //respond with listToReturn
-      });
-    }
+    res.json(result.rows);
   });
 });
+
+//   getFileData('./userdata.json', (err, parsedUsers) => {
+//     if (err) {
+//       throw err;
+//     }
+//     //check for user existence
+//     if (!parsedUsers.find(user => user.email === newAuthorizedUserEmail))
+//       return res.status(404).send('no user');
+//     const newAuthorizedUserId = parsedUsers.find(
+//       user => user.email === newAuthorizedUserEmail
+//     ).userId; //grab userId of user
+//     //if new id is already in the list of authorized users, alert user
+//     if (
+//       parsedLists.find(
+//         list =>
+//           list.name === name &&
+//           list.authorizedUsers.find(
+//             userId => userId === newAuthorizedUserId
+//           )
+//       )
+//     )
+//       return res.status(404).send('duplicate');
+//     updatedLists = parsedLists.map(list => {
+//       if (list.name !== name) {
+//         return list;
+//       } else {
+//         //otherwise add it to the list
+//         const newAuthorizedUserList = [
+//           ...list.authorizedUsers,
+//           newAuthorizedUserId
+//         ];
+//         return (listToReturn = Object.assign({}, list, {
+//           authorizedUsers: newAuthorizedUserList
+//         }));
+//       }
+//     });
+//     saveFileData('./listdata.json', updatedLists, err => {
+//       if (err) throw err;
+//       res.json(listToReturn); //respond with listToReturn
+//     });
+//   });
+// }
 
 app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  const text =
+    `UPDATE todos SET text = $1, completed = $2, tag = $3, due_date = $4, latitude = $5, longitude = $6, rich_text_comment = $7 
+    WHERE todo_id = $8 RETURNING *`;
+  const values = [
+    req.body.text,
+    req.body.completed,
+    req.body.tag,
+    req.body.dueDate,
+    req.body.latitude,
+    req.body.longitude,
+    req.body.richTextComment,
+    req.params.id
+  ];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    const todoId = req.params.id; //req.params.id pulls from :id part of url
-    let todoToReturn = {};
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        //find correct todos in LoL
-        list.todos = list.todos.map(item => {
-          // replace old todos with new one containing updated todo
-          if (item.id !== todoId) {
-            return item;
-          }
-          return (todoToReturn = Object.assign({}, item, req.body)); // req.body needed? yes, otherwise has a bunch of random data
-        });
-      }
-    });
-    saveFileData('./listdata.json', parsedLists, err => {
-      if (err) throw err;
-      res.json(todoToReturn);
-    });
+    res.json(result.rows[0]);
   });
 });
 
 app.put('/user/', function(req, res) {
   //PUT updates logged in user
-  const userId = req.user.userId;
+  const userId = req.user.user_id;
   const saltRounds = 10;
 
   if (!req.user) return res.status(403).end();
@@ -551,46 +566,61 @@ app.put('/user/', function(req, res) {
 app.delete('/list/:listName/todo/:id', function(req, res) {
   //DELETEs a todo item
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
+  text = 'DELETE FROM todos WHERE todo_id = $1';
+  values = [req.params.id];
+  client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
-    const name = req.params.listName;
-    const todoId = req.params.id;
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        list.todos = list.todos.filter(item => item.id !== todoId);
-      }
-    });
-    saveFileData('./listdata.json', parsedLists, err => {
-      if (err) throw err;
-      res.end();
-    });
+    res.end();
+    return;
   });
 });
 
 app.delete('/list/:listName', function(req, res) {
   if (!req.user) return res.status(403).end();
-  getFileData('./listdata.json', (err, parsedLists) => {
-    const name = req.params.listName;
-    parsedLists.forEach(list => {
-      if (list.name === name) {
-        if (req.query.completed === 'true') {
-          //if clearing list of all completed
-          list.todos = list.todos.filter(item => item.completed !== true);
-        } else if (req.query.all === 'true') {
-          //if clearing list of all items
-          list.todos = [];
-        } else {
-          //if deleting list altogether
-          parsedLists = parsedLists.filter(list => list.name !== name);
+  let text = 'SELECT * FROM todo_lists WHERE name = $1';
+  let values = [req.params.listName];
+  client.query(text, values, (err, result) => {
+    if (err) {
+      throw err;
+    }
+    if (req.query.completed === 'true') {
+      text = 'DELETE FROM todos WHERE owner_id = $1 AND completed = true';
+      values = [result.rows[0].list_id];
+      client.query(text, values, (err, result) => {
+        if (err) {
+          throw err;
         }
-      }
-    });
-    saveFileData('./listdata.json', parsedLists, err => {
-      if (err) throw err;
-      res.end();
-    });
+        return;
+      });
+    } else if (req.query.all === 'true') {
+      text = 'DELETE FROM todos WHERE owner_id = $1';
+      values = [result.rows[0].list_id];
+      client.query(text, values, (err, result) => {
+        if (err) {
+          throw err;
+        }
+        return;
+      });
+    } else {
+      text = 'DELETE FROM todos WHERE owner_id = $1'; //delete todos from todo table
+      values = [result.rows[0].list_id];
+      client.query(text, values, (err, result) => {
+        if (err) {
+          throw err;
+        }
+      });
+      text = 'DELETE FROM todo_lists WHERE list_id = $1'; //delete list from todo_list table
+      values = [result.rows[0].list_id];
+      client.query(text, values, (err, result) => {
+        if (err) {
+          throw err;
+        }
+        return;
+      });
+    }
+    res.end();
   });
 });
 
