@@ -102,47 +102,28 @@ app.post('/uploadPhoto/', upload.single('photo'), function(req, res) {
   //now store path to this file in our listdata file
   if (req.query.type === 'profile') {
     const userId = req.user.user_id;
-    const text =
-    `UPDATE users SET profile_picture_link = $1
+    const text = `UPDATE users SET profile_picture_link = $1
     WHERE user_id = $2 RETURNING *`;
-  const values = [newPictureLink, userId];
-  client.query(text, values, (err, result) => {
-    if (err) {
-      throw err;
-    }
-    res.json(result.rows[0]);
-  });
-}
-
-
-  //each todo item has an array that contains paths to photos uploaded to it
-  //presentational component will read this array and for each, GET the proper resource from the images folder.
-  if (req.query.type === 'todoitem') {
-    getFileData('./listdata.json', (err, parsedLists) => {
+    const values = [newPictureLink, userId];
+    client.query(text, values, (err, result) => {
       if (err) {
         throw err;
       }
-      const name = req.query.listname;
-      const todoId = req.query.todoid; //req.params.id pulls from :id part of url
-      let todoToReturn = {};
-      parsedLists.forEach(list => {
-        if (list.name === name) {
-          //find correct todos in LoL
-          list.todos = list.todos.map(item => {
-            // replace old todos with new one containing updated todo
-            if (item.id !== todoId) {
-              return item;
-            }
-            return (todoToReturn = Object.assign({}, item, {
-              pictureLinks: item.pictureLinks.concat(newPictureLink)
-            })); // adds new picture link to existing array
-          });
-        }
-      });
-      saveFileData('./listdata.json', parsedLists, err => {
-        if (err) throw err;
-        res.json(todoToReturn);
-      });
+      res.json(result.rows[0]);
+    });
+  }
+  //each todo item has an array that contains paths to photos uploaded to it
+  //presentational component will read this array and for each, GET the proper resource from the images folder.
+  if (req.query.type === 'todoitem') {
+    const todoId = req.query.todoid;
+    const text = `INSERT INTO todo_photos (owner_id, photo_path) 
+    VALUES ( $1 , $2 ) RETURNING *`;
+    const values = [todoId, newPictureLink];
+    client.query(text, values, (err, result) => {
+      if (err) {
+        throw err;
+      }
+      res.json(result.rows[0]);
     });
   }
 });
@@ -329,15 +310,18 @@ app.get('/list/:listName/todo/:id', function(req, res) {
   //GETs a single todo item
   //GY add authoried users, etc
   if (!req.user) return res.status(403).end();
-  const text = `SELECT * FROM todo_lists 
+  const text = `SELECT todo_id, todos.owner_id, text, completed, tag, due_date, latitude, longitude, rich_text_comment, array_agg(photo_path) AS photo_links FROM todo_lists 
   JOIN todos ON todo_lists.list_id=todos.owner_id  
+  LEFT JOIN todo_photos ON todo_photos.owner_id = todos.todo_id
   LEFT JOIN list_permissions ON list_permissions.list_id=todo_lists.list_id  
-  WHERE todo_id = $1 AND (todo_lists.creator =$2 OR user_id = $2 OR privacy = $3)`;
+  WHERE todo_id = $1 AND (todo_lists.creator =$2 OR list_permissions.user_id = $2 OR todo_lists.privacy = $3)
+  GROUP BY todo_id, todos.owner_id, text, completed, tag, due_date, latitude, longitude, rich_text_comment`;
   const values = [req.params.id, req.user.user_id, 'public'];
   client.query(text, values, (err, result) => {
     if (err) {
       throw err;
     }
+    console.log(result.rows[0])
     res.json(result.rows[0]);
   });
 });
@@ -483,8 +467,7 @@ app.put('/list/:listName', function(req, res) {
 app.put('/list/:listName/todo/:id', function(req, res) {
   //PUT updates a todo item
   if (!req.user) return res.status(403).end();
-  const text =
-    `UPDATE todos SET text = $1, completed = $2, tag = $3, due_date = $4, latitude = $5, longitude = $6, rich_text_comment = $7 
+  const text = `UPDATE todos SET text = $1, completed = $2, tag = $3, due_date = $4, latitude = $5, longitude = $6, rich_text_comment = $7 
     WHERE todo_id = $8 RETURNING *`;
   const values = [
     req.body.text,
